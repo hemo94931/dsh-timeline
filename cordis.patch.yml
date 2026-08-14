@@ -1,0 +1,5 @@
+# @hemo94931/dsh-timeline 的 profile 补丁层：把会话时间轴插入浏览器插件花名册。
+# 本文件经 package.json 的 dsh.bundle.patch 声明；dsh plugin add 安装后随 profile 组合自动生效。
+- insert:
+    - id: ui-timeline
+      name: '@hemo94931/dsh-timeline'
