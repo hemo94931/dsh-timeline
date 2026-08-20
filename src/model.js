@@ -7,6 +7,7 @@
  * 固定间距（≤ maxSpacing）垂直居中聚集；消息过多时均匀压缩间距（不设下限、不合并）。
  */
 function tickCenterPx(index, count, trackHeight, maxSpacing) {
+  if (!Number.isFinite(index)) return 0
   if (count <= 0 || trackHeight <= 0 || index < 0 || index >= count) return 0
   const spacing = Math.min(maxSpacing, trackHeight / count)
   const cluster = spacing * count
@@ -78,6 +79,18 @@ function resolveNav(lower, fraction, count) {
   return { prev, next }
 }
 
+/**
+ * 漂移自检谓词（纯数字判定，供 DOM 层复用）：
+ * 滚动内容明显长于视口（严格大于 2 倍）却一条用户消息行都没读到时，
+ * 视为选择器可能已漂移。rowCount > 0、clientHeight <= 0、非有限值均不告警。
+ */
+function shouldWarnMissingRows(rowCount, scrollHeight, clientHeight) {
+  if (rowCount !== 0) return false
+  if (!Number.isFinite(scrollHeight) || !Number.isFinite(clientHeight)) return false
+  if (clientHeight <= 0) return false
+  return scrollHeight > clientHeight * 2
+}
+
 // __EXPORTS__
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -86,6 +99,7 @@ if (typeof module !== 'undefined' && module.exports) {
     truncateSummary,
     resolveCurrentPosition,
     resolveNav,
+    shouldWarnMissingRows,
   }
 }
-export { tickCenterPx, tickHitHeight, truncateSummary, resolveCurrentPosition, resolveNav }
+export { tickCenterPx, tickHitHeight, truncateSummary, resolveCurrentPosition, resolveNav, shouldWarnMissingRows }

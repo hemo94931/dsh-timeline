@@ -8,6 +8,7 @@ import {
   truncateSummary,
   resolveCurrentPosition,
   resolveNav,
+  shouldWarnMissingRows,
 } from '../src/model.js'
 
 test('tickCenterPx: 固定间距垂直居中聚集', () => {
@@ -26,6 +27,22 @@ test('tickCenterPx: 非法输入归 0', () => {
   assert.equal(tickCenterPx(0, 0, 600, 24), 0)
   assert.equal(tickCenterPx(5, 3, 600, 24), 0)
   assert.equal(tickCenterPx(0, 3, 0, 24), 0)
+})
+
+test('tickCenterPx: 接受分数下标（连续位置指示器复用同一公式）', () => {
+  // count=2, track=600, maxSpacing=24 → start=276；0.25 → 276 + 0.75*24 = 294
+  assert.equal(tickCenterPx(0.25, 2, 600, 24), 294)
+  // count=3 → cluster=72, start=264；1.5 → 264 + 2*24 = 312
+  assert.equal(tickCenterPx(1.5, 3, 600, 24), 312)
+  // 整数下标语义不变：标记必须与刻度重合
+  assert.equal(tickCenterPx(1, 3, 600, 24), 312 - 12)
+})
+
+test('tickCenterPx: 非有限下标归 0（不产生 NaN px）', () => {
+  assert.equal(tickCenterPx(NaN, 3, 600, 24), 0)
+  assert.equal(tickCenterPx(Infinity, 3, 600, 24), 0)
+  assert.equal(tickCenterPx(-Infinity, 3, 600, 24), 0)
+  assert.equal(tickCenterPx(-0.1, 3, 600, 24), 0)
 })
 
 test('tickHitHeight: 间距充足时取最小命中高度', () => {
@@ -126,4 +143,22 @@ test('resolveNav: 仅 2 条时相互跳转', () => {
 
 test('resolveNav: 空列表双侧置灰', () => {
   assert.deepEqual(resolveNav(-1, 0, 0), { prev: null, next: null })
+})
+
+test('shouldWarnMissingRows: 内容长却零用户行才告警', () => {
+  assert.equal(shouldWarnMissingRows(0, 1000, 400), true)
+  assert.equal(shouldWarnMissingRows(3, 1000, 400), false)
+})
+
+test('shouldWarnMissingRows: 严格大于 2 倍视口高才告警', () => {
+  assert.equal(shouldWarnMissingRows(0, 800, 400), false)
+  assert.equal(shouldWarnMissingRows(0, 801, 400), true)
+})
+
+test('shouldWarnMissingRows: 退化与非有限输入不告警', () => {
+  assert.equal(shouldWarnMissingRows(0, 1000, 0), false)
+  assert.equal(shouldWarnMissingRows(0, 0, 400), false)
+  assert.equal(shouldWarnMissingRows(0, NaN, 400), false)
+  assert.equal(shouldWarnMissingRows(0, 1000, NaN), false)
+  assert.equal(shouldWarnMissingRows(0, Infinity, 400), false)
 })

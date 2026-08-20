@@ -2,11 +2,13 @@
 
 在 dsh WebUI 会话消息列右缘渲染一条竖直**时间轴**：每条**用户消息**（首轮消息 + steering 追问）一条短横线**刻度**，悬浮显示消息摘要与序号（`3 / 12`），点击**跳转**到对应消息（位于视口顶端 + 短暂高亮），▲▼ 按钮逐条导航，**当前刻度**随滚动高亮。颜色使用 dsh 主题令牌，深浅色自适应。
 
+
 ## 文件结构
 
-- `src/model.js` — 纯逻辑模型（刻度布局 / 摘要截断 / 导航 / 当前位置插值），不依赖 DOM，可单测
-- `src/shell.js` — DOM 薄壳（选择器读取、scrollTop 写入、React 渲染、监听器生命周期）
-- `build.js` — 构建脚本：内联 model + shell → `client.js`（动态插件函数体）与 `lib/client.js`（常驻 bundle）
+- `src/model.js` — 纯逻辑模型（刻度布局 / 摘要截断 / 导航 / 当前位置插值 / 漂移谓词），不依赖 DOM，可单测
+- `src/dom.js` — 产品 DOM 契约 adapter（`timelineDom` 命名空间）：滚动容器 / 用户消息行 / 气泡 / 锚点 / 详情面板开合的全部选择器与读取集中于此，含分类漂移自检
+- `src/shell.js` — controller + React 视图（DOM 经参数注入的 `timelineDom` 访问，自身不持有产品选择器；监听器生命周期）
+- `build.js` — 构建脚本：内联 model + dom + shell → `client.js`（动态插件函数体）与 `lib/client.js`（常驻 bundle），含轻量产物校验
 - `client.js` — 构建产物：动态 Cordis 客户端插件的完整函数体（**勿手改**）
 - `lib/index.js` / `lib/client.js` — 常驻安装包形态：node half（空 apply）+ lazy-CJS 浏览器 bundle（**勿手改**）
 - `cordis.patch.yml` — profile 补丁层：把 `ui-timeline` 插入浏览器插件花名册
@@ -45,6 +47,15 @@ dsh plugin --profile web add .
 
 ## 故障排查
 
+产品升级后时间轴异常：**优先核对 `src/dom.js`**（产品 DOM 契约的唯一持有者），核对完 `node build.js` 重新构建。契约清单：`data-conversation-scroll`（滚动容器）、`data-chat-flow-kind`（用户/steering 行）、`data-chat-anchor-key`（锚点）、`[class*="_bubble"]`（气泡，可选）、`data-details-collapsed`（详情面板收起标记，presence 语义，位于 frame 上）。
+
+漂移自检（浏览器控制台，标签统一为 `[dsh-timeline:dom]`，换滚动容器后自动重置）：
+
+- `rows=0`（error）— 内容很长却读不到用户消息行：`data-chat-flow-kind` 漂移，时间轴降级隐藏
+- `no-bubble rows=N missing=M`（warn）— 部分行没有气泡：摘要/闪动回退整行
+- `no-frame`（warn）— 向上找不到详情 frame：布局大改，时间轴保守隐藏
+
+其他：
+
 - 启动报 `failed to apply loader entry ... (@hemo94931/dsh-timeline): styles is not defined`：常驻 bundle（`lib/client.js`）过期，缺静态环境的 `React`/`styles` prelude。`node build.js` 重新构建即可（详见 build.js 注释：静态 loader entry 没有动态插件闭包注入的符号）。
-- 时间轴完全不出现：打开浏览器控制台看是否有 `[@hemo94931/dsh-timeline]` 警告（选择器漂移自检），或确认会话有 ≥2 条用户消息。
-- 产品升级后失效：大概率是 `data-conversation-scroll` / `data-chat-flow-kind` / `data-chat-anchor-key` 选择器契约变化，更新 `src/shell.js` 顶部的 `SEL_*` 常量后重新 `node build.js`。
+- 时间轴完全不出现：确认会话有 ≥2 条用户消息、详情面板未打开。**刚打开/刷新会话时消息行是渐进挂载的**，视口附近可能暂时只有 1 条用户消息——向上滚动补齐后时间轴会自动出现（MutationObserver 重读，无需刷新）。

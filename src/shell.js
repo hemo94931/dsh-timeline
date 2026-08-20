@@ -1,4 +1,6 @@
-// 时间轴 DOM 薄壳 —— 依赖 build.js 内联在上方模型函数（tickCenterRatio 等）。
+// 时间轴 DOM 薄壳 + React 视图 —— 依赖 build.js 内联在上方 model 函数（tickCenterPx 等）
+// 与 timelineDom 命名空间（src/dom.js，产品 DOM 契约持有者）。
+// controller 经参数注入的 dom adapter 访问产品 DOM，自身不再持有选择器。
 // 本文件 + 模型拼接后即为动态 Cordis 客户端插件的完整函数体（见 client.js）。
 
 var STRIP_WIDTH = 20
@@ -6,38 +8,8 @@ var MIN_HIT = 6
 var TICK_SPACING = 24
 var SUMMARY_MAX = 120
 var FLASH_MS = 1600
-var SEL_SCROLLER = '[data-conversation-scroll]'
-var SEL_USER_ROWS = '[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]'
 
-var cssEscape = (typeof CSS !== 'undefined' && CSS.escape)
-  ? function (s) { return CSS.escape(s) }
-  : function (s) { return String(s).replace(/["\\]/g, '\\$&') }
-
-function findScroller() {
-  return document.querySelector(SEL_SCROLLER)
-}
-
-function extractText(row) {
-  var bubble = row.querySelector('[class*="_bubble"]')
-  var t = bubble ? bubble.innerText : row.innerText
-  return t == null ? '' : t
-}
-
-// 详情面板检测：沿滚动容器向上找三列 grid 框架，第三列（details）宽度 > 1px 视为打开。
-function detectDetailsOpen(scroller) {
-  var el = scroller
-  while (el) {
-    var cs = getComputedStyle(el)
-    if (cs.display === 'grid') {
-      var parts = cs.gridTemplateColumns.split(' ').filter(Boolean)
-      if (parts.length === 3) return parseFloat(parts[2]) > 1
-    }
-    el = el.parentElement
-  }
-  return false
-}
-
-function createTimelineController(ctx, notify) {
+function createTimelineController(ctx, dom, notify) {
   var disposed = false
   var scroller = null
   var mo = null
@@ -51,7 +23,6 @@ function createTimelineController(ctx, notify) {
   var detailsOpen = false
   var rect = null
   var flashEl = null
-  var warnedDrift = false
 
   function computeVisible() {
     return scroller !== null && ticks.length >= 2 && !detailsOpen
@@ -74,29 +45,20 @@ function createTimelineController(ctx, notify) {
     if (!scroller) { rect = null; detailsOpen = false; return }
     var r = scroller.getBoundingClientRect()
     rect = { top: r.top, left: r.right - STRIP_WIDTH, height: r.height, width: STRIP_WIDTH }
-    detailsOpen = detectDetailsOpen(scroller)
+    // 三态判定：open / unknown 都视为"非收起"→ 时间轴隐藏（unknown 保守处理，:no-frame 告警由 adapter 负责）
+    detailsOpen = dom.detailsState(scroller) !== 'closed'
   }
 
   function refreshTicks() {
     if (!scroller) return
-    var rows = scroller.querySelectorAll(SEL_USER_ROWS)
-    if (rows.length === 0 && scroller.scrollHeight > scroller.clientHeight * 2 && !warnedDrift) {
-      warnedDrift = true
-      console.error('[dsh-timeline] 用户消息选择器命中 0 行但页面内容很长：产品 DOM 可能已变化，时间轴降级隐藏')
-    }
-    var next = []
-    for (var i = 0; i < rows.length; i++) {
-      var key = rows[i].getAttribute('data-chat-anchor-key')
-      if (key) next.push({ key: key, text: extractText(rows[i]) })
-    }
-    ticks = next
+    ticks = dom.readTicks(scroller)
     refreshGeometry()
     updateCurrent()
     emit()
   }
 
   function rowOf(tick) {
-    return scroller ? scroller.querySelector('[data-chat-anchor-key="' + cssEscape(tick.key) + '"]') : null
+    return dom.rowOf(scroller, tick.key)
   }
 
   function updateCurrent() {
@@ -132,6 +94,8 @@ function createTimelineController(ctx, notify) {
       emit()
       return
     }
+    // 换了滚动容器（会话切换）：重置漂移告警，让新容器的契约状态可被重新报告
+    dom.resetWarnings()
     mo = new MutationObserver(debouncedRefresh)
     mo.observe(scroller, { childList: true, subtree: true, characterData: true })
     ro = new ResizeObserver(function () { refreshGeometry(); updateCurrent(); emit() })
@@ -143,11 +107,11 @@ function createTimelineController(ctx, notify) {
 
   // 会话切换 / hero 页进出：周期性检查滚动容器元素身份，变化时整体重绑定。
   var disposeInterval = ctx.interval(function () {
-    var found = findScroller()
+    var found = dom.findScroller()
     if (found !== scroller) bind(found)
   }, 400)
 
-  bind(findScroller())
+  bind(dom.findScroller())
 
   return {
     jumpTo: function (index) {
@@ -155,8 +119,8 @@ function createTimelineController(ctx, notify) {
       var row = rowOf(ticks[index])
       if (!row) return
       scroller.scrollTop += row.getBoundingClientRect().top - scroller.getBoundingClientRect().top
-      // 闪动高亮只作用于消息气泡本身，而不是整行（整行会让高亮区域超出消息框）
-      var target = row.querySelector('[class*="_bubble"]') || row
+      // 闪动高亮目标由 DOM adapter 决定（气泡优先，缺失回退整行；不持有产品选择器）
+      var target = dom.flashTargetOf(row)
       if (flashEl) flashEl.classList.remove('dsh-tl-flash')
       flashEl = target
       target.classList.add('dsh-tl-flash')
@@ -262,10 +226,9 @@ function TimelineStrip(props) {
   }
 
   // 连续位置指示器：视口顶在两条用户消息之间时，按滚动进度插值位于两条刻度之间
+  // （分数下标复用 tickCenterPx 同一公式，保证标记与刻度严格对齐）
   if (state.currentPos >= 0 && n > 0 && trackHeight > 0) {
-    var spacing = Math.min(TICK_SPACING, trackHeight / n)
-    var start = (trackHeight - spacing * n) / 2
-    var markerY = start + (state.currentPos + 0.5) * spacing
+    var markerY = tickCenterPx(state.currentPos, n, trackHeight, TICK_SPACING)
     trackChildren.push(React.createElement('div', {
       key: 'dsh-tl-current',
       className: 'dsh-tl-current',
@@ -359,7 +322,7 @@ return {
       var setState = pair[1]
       var ref = React.useRef(null)
       React.useEffect(function () {
-        var ctl = createTimelineController(ctx, function (s) { setState(s) })
+        var ctl = createTimelineController(ctx, timelineDom, function (s) { setState(s) })
         ref.current = ctl
         return function () { ctl.dispose(); ref.current = null }
       }, [])
