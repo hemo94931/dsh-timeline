@@ -1,6 +1,6 @@
 {
   "name": "@hemo94931/dsh-timeline",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "会话时间轴：在 dsh WebUI 会话消息列右缘渲染用户消息刻度导航条（悬浮摘要 / 点击跳转 / ▲▼ 导航 / 连续位置指示）",
   "license": "MIT",
   "repository": {

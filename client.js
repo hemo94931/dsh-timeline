@@ -98,7 +98,7 @@ function shouldWarnMissingRows(rowCount, scrollHeight, clientHeight) {
 // 本文件由 build.js 内联进 client.js（拼接顺序 model → dom → shell），
 // 因此可使用上方 model.js 内联的 shouldWarnMissingRows 谓词；不得使用 import/export。
 //
-// 契约语义（对照产品 0.1.0-rc.7 核实）：
+// 契约语义（对照产品 0.1.0-rc.7 核实，0.1.1-rc.1 复核无漂移）：
 //  - 滚动容器：[data-conversation-scroll]
 //  - 用户消息行：[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]（两者同等对待）
 //  - 锚点：data-chat-anchor-key —— 非空、会话内稳定，作为刻度身份与行定位 key
